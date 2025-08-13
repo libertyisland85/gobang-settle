@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>모임 정산 프로그램</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ffcc00">
+<style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: auto; padding: 20px; }
+    h1, h2 { text-align: center; }
+    .page { display: none; }
+    .active { display: block; }
+    input, select, textarea { padding: 5px; margin: 3px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    button { padding: 8px 15px; margin-top: 10px; cursor: pointer; }
+    .pay-btn { background-color: #ffcc00; border: none; border-radius: 5px; padding: 5px 10px; cursor: pointer; }
+
+    /* 📱 모바일 화면 최적화 */
+    @media (max-width: 768px) {
+        body { font-size: 16px; padding: 10px; }
+        table { font-size: 14px; }
+        th, td { padding: 8px; }
+        input, select, textarea { width: 100%; font-size: 16px; }
+        button, .pay-btn { font-size: 16px; padding: 10px; width: 100%; margin-top: 5px; }
+        h1 { font-size: 22px; }
+        h2 { font-size: 18px; }
+    }
+
+    /* 💻 PC 화면 최적화 */
+    @media (min-width: 769px) {
+        body { font-size: 18px; }
+        table { font-size: 16px; }
+        input, select, textarea { font-size: 16px; }
+    }
+</style>
+</head>
+<body>
+
+<h1>모임 정산 프로그램</h1>
+
+<!-- 페이지 1: 참석자 입력 -->
+<div class="page active" id="page1">
+    <h2>1단계: 참석자 입력</h2>
+    <textarea id="participants" placeholder="참석자 이름을 줄바꿈으로 입력하세요" style="width:100%; height:150px;"></textarea>
+    <br>
+    <button onclick="goToExpenses()">다음 단계</button>
+</div>
+
+<!-- 페이지 2: 지출 내역 입력 -->
+<div class="page" id="page2">
+    <h2>2단계: 지출 내역 입력</h2>
+    <table id="expensesTable">
+        <tr>
+            <th>지출 내역</th>
+            <th>지출 금액(원)</th>
+            <th>지출자</th>
+            <th>삭제</th>
+        </tr>
+    </table>
+    <button onclick="addExpenseRow()">행 추가</button>
+    <button onclick="calculate()">정산하기</button>
+</div>
+
+<!-- 페이지 3: 결과 출력 -->
+<div class="page" id="page3">
+    <h2>정산 결과</h2>
+    <div id="details"></div>
+    <div id="summary"></div>
+    <button onclick="location.reload()">다시 하기</button>
+</div>
+
+<script>
+let names = [];
+let expenses = [];
+const bankName = "카카오뱅크";
+const accountNumber = "3333-12-3456789";
+const accountHolder = "홍길동";
+
+function goToExpenses() {
+    const input = document.getElementById("participants").value.trim();
+    if (!input) { alert("참석자 이름을 입력하세요."); return; }
+    names = input.split("\n").map(name => name.trim()).filter(name => name);
+    if (names.length < 2) { alert("최소 2명 이상 입력하세요."); return; }
+
+    addExpenseRow(); // 첫 행 추가
+    showPage(2);
+}
+
+function addExpenseRow() {
+    const table = document.getElementById("expensesTable");
+    const row = table.insertRow(-1);
+
+    row.insertCell(0).innerHTML = `<input type="text" placeholder="예: 식사" style="width:95%;">`;
+    row.insertCell(1).innerHTML = `<input type="number" min="0" value="0" style="width:90%;">`;
+
+    let selectHTML = `<select style="width:95%;">`;
+    names.forEach(name => {
+        selectHTML += `<option value="${name}">${name}</option>`;
+    });
+    selectHTML += `</select>`;
+    row.insertCell(2).innerHTML = selectHTML;
+
+    row.insertCell(3).innerHTML = `<button onclick="deleteRow(this)">삭제</button>`;
+}
+
+function deleteRow(btn) {
+    const row = btn.parentNode.parentNode;
+    document.getElementById("expensesTable").deleteRow(row.rowIndex);
+}
+
+function calculate() {
+    expenses = [];
+    const table = document.getElementById("expensesTable");
+    let total = 0;
+
+    for (let i = 1; i < table.rows.length; i++) {
+        const desc = table.rows[i].cells[0].querySelector("input").value.trim() || "-";
+        const amount = parseFloat(table.rows[i].cells[1].querySelector("input").value) || 0;
+        const payer = table.rows[i].cells[2].querySelector("select").value;
+        expenses.push({ desc, amount, payer });
+        total += amount;
+    }
+
+    const perPerson = total / names.length;
+    let paidMap = {};
+    names.forEach(name => paidMap[name] = 0);
+    expenses.forEach(exp => paidMap[exp.payer] += exp.amount);
+
+    let detailsHTML = `<h3>📜 지출 내역</h3>
+        <table>
+        <tr><th>지출 내역</th><th>금액(원)</th><th>지출자</th></tr>`;
+    expenses.forEach(exp => {
+        detailsHTML += `<tr>
+            <td>${exp.desc}</td>
+            <td>${exp.amount.toLocaleString()}</td>
+            <td>${exp.payer}</td>
+        </tr>`;
+    });
+    detailsHTML += `</table>`;
+    document.getElementById("details").innerHTML = detailsHTML;
+
+    let summaryHTML = `<h3>💰 정산 요약</h3>
+        <table>
+        <tr><th>이름</th><th>지출액</th><th>1인당 부담금</th><th>차액</th><th>결과</th></tr>`;
+    names.forEach(name => {
+        let diff = paidMap[name] - perPerson;
+        let resultText = "";
+        if (diff > 0) {
+            resultText = `${Math.round(diff).toLocaleString()} 원 받기`;
+        } else if (diff < 0) {
+            let payAmount = Math.abs(Math.round(diff));
+            resultText = `${payAmount.toLocaleString()} 원 내기 <br>
+                          <button class="pay-btn" onclick="copyAccount(${payAmount})">계좌 복사</button>`;
+        } else {
+            resultText = "정산 완료";
+        }
+        summaryHTML += `<tr>
+            <td>${name}</td>
+            <td>${paidMap[name].toLocaleString()} 원</td>
+            <td>${Math.round(perPerson).toLocaleString()} 원</td>
+            <td>${Math.round(diff).toLocaleString()} 원</td>
+            <td>${resultText}</td>
+        </tr>`;
+    });
+    summaryHTML += `</table>`;
+    document.getElementById("summary").innerHTML = summaryHTML;
+
+    showPage(3);
+}
+
+function copyAccount(amount) {
+    const text = `${bankName} ${accountNumber} (${accountHolder}) - ${amount.toLocaleString()}원`;
+    navigator.clipboard.writeText(text).then(() => {
+        alert("계좌번호와 금액이 복사되었습니다:\n" + text);
+    });
+}
+
+function showPage(pageNum) {
+    document.querySelectorAll(".page").forEach((p, i) => {
+        p.classList.remove("active");
+        if (i === pageNum - 1) p.classList.add("active");
+    });
+}
+
+// PWA 서비스워커 등록
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("service-worker.js").then(() => {
+        console.log("서비스 워커 등록 완료");
+    });
+}
+</script>
+
+</body>
+</html>
